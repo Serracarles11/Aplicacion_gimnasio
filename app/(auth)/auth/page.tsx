@@ -7,13 +7,23 @@ import { Loader2, Mail, LockKeyhole, Eye, EyeOff, LogIn, UserPlus, Github, Chrom
 // ---- SUPABASE CLIENT (browser) ----
 function useSupabase() {
   const supabase = useMemo(
-    () => createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    ),
+    () =>
+      createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      ),
     []
   );
   return supabase;
+}
+
+// ---- util: obtener "code" de un error sin usar any ----
+function getErrorCode(e: unknown): string | undefined {
+  if (e && typeof e === "object") {
+    const code = (e as Record<string, unknown>)["code"];
+    return typeof code === "string" ? code : undefined;
+  }
+  return undefined;
 }
 
 // ---- GUARDA/ACTUALIZA EN BBDD TRAS LOGIN/SIGNUP ----
@@ -47,9 +57,24 @@ async function ensureProfileClient(supabase: ReturnType<typeof createClient>) {
 }
 
 // ---- TOAST SIMPLE ----
-function Toast({ message, type }: { message: string; type: "success" | "error" | "info" }) {
-  const color = type === "success" ? "bg-green-500" : type === "error" ? "bg-red-500" : "bg-slate-600";
-  return <div className={`fixed top-4 right-4 z-50 text-white px-4 py-2 rounded-xl shadow-lg ${color}`}>{message}</div>;
+function Toast({
+  message,
+  type,
+}: {
+  message: string;
+  type: "success" | "error" | "info";
+}) {
+  const color =
+    type === "success"
+      ? "bg-green-500"
+      : type === "error"
+      ? "bg-red-500"
+      : "bg-slate-600";
+  return (
+    <div className={`fixed top-4 right-4 z-50 text-white px-4 py-2 rounded-xl shadow-lg ${color}`}>
+      {message}
+    </div>
+  );
 }
 
 export default function AuthPage() {
@@ -60,7 +85,10 @@ export default function AuthPage() {
   const [fullName, setFullName] = useState("");
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
+  const [toast, setToast] = useState<{
+    message: string;
+    type: "success" | "error" | "info";
+  } | null>(null);
 
   const notify = (message: string, type: "success" | "error" | "info" = "info") => {
     setToast({ message, type });
@@ -117,7 +145,8 @@ export default function AuthPage() {
     });
 
     // 🔁 Caso: el usuario ya existe en auth.users → reenvía confirmación
-    if (error?.message === "User already registered" || (error as any)?.code === "user_already_exists") {
+    const code = getErrorCode(error);
+    if (error?.message === "User already registered" || code === "user_already_exists") {
       const { error: resendError } = await supabase.auth.resend({
         type: "signup",
         email,
