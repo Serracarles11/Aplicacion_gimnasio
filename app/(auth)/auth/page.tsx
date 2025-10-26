@@ -2,13 +2,24 @@
 
 import { useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
-import { Loader2, Mail, LockKeyhole, Eye, EyeOff, LogIn, UserPlus, Github, Chrome } from "lucide-react";
+import {
+  Loader2,
+  Mail,
+  LockKeyhole,
+  Eye,
+  EyeOff,
+  LogIn,
+  UserPlus,
+  Github,
+  Chrome,
+} from "lucide-react";
+import type { Database } from "../../../src/types/supabase";
 
 // ---- SUPABASE CLIENT (browser) ----
 function useSupabase() {
   const supabase = useMemo(
     () =>
-      createClient(
+      createClient<Database>(
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
       ),
@@ -17,18 +28,11 @@ function useSupabase() {
   return supabase;
 }
 
-// ---- util: obtener "code" de un error sin usar any ----
-function getErrorCode(e: unknown): string | undefined {
-  if (e && typeof e === "object") {
-    const code = (e as Record<string, unknown>)["code"];
-    return typeof code === "string" ? code : undefined;
-  }
-  return undefined;
-}
-
 // ---- GUARDA/ACTUALIZA EN BBDD TRAS LOGIN/SIGNUP ----
-async function ensureProfileClient(supabase: ReturnType<typeof createClient>) {
-  const { data: { session } } = await supabase.auth.getSession();
+async function ensureProfileClient(supabase: any) {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
   if (!session) return;
 
   const u = session.user;
@@ -38,19 +42,29 @@ async function ensureProfileClient(supabase: ReturnType<typeof createClient>) {
     null;
 
   // Espejo (opcional): si tu tabla public.users tiene policies de INSERT
-  const { error: usersErr } = await supabase.from("users").upsert({
-    id: u.id,
-    email: u.email,
-  });
+  const { error: usersErr } = await supabase
+    .from("users" as any)
+    .upsert(
+      {
+        id: u.id,
+        email: u.email ?? "",
+      } as any
+    );
+
   if (usersErr) {
     console.warn("users upsert error:", usersErr.message);
   }
 
   // Perfil principal
-  const { error: profErr } = await supabase.from("profiles").upsert({
-    user_id: u.id,
-    display_name: displayName,
-  });
+  const { error: profErr } = await supabase
+    .from("profiles" as any)
+    .upsert(
+      {
+        user_id: u.id,
+        display_name: displayName,
+      } as any
+    );
+
   if (profErr) {
     console.error("profiles upsert error:", profErr.message);
   }
@@ -71,7 +85,9 @@ function Toast({
       ? "bg-red-500"
       : "bg-slate-600";
   return (
-    <div className={`fixed top-4 right-4 z-50 text-white px-4 py-2 rounded-xl shadow-lg ${color}`}>
+    <div
+      className={`fixed top-4 right-4 z-50 text-white px-4 py-2 rounded-xl shadow-lg ${color}`}
+    >
       {message}
     </div>
   );
@@ -90,17 +106,24 @@ export default function AuthPage() {
     type: "success" | "error" | "info";
   } | null>(null);
 
-  const notify = (message: string, type: "success" | "error" | "info" = "info") => {
+  const notify = (
+    message: string,
+    type: "success" | "error" | "info" = "info"
+  ) => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3500);
   };
 
-  // ---- LOGIN (escribe en BBDD y redirige) ----
+  // ---- LOGIN ----
   const handleLogin = async () => {
-    if (!email || !password) return notify("Rellena email y contraseña", "error");
+    if (!email || !password)
+      return notify("Rellena email y contraseña", "error");
     setLoading(true);
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
     if (error) {
       setLoading(false);
       return notify(error.message, "error");
@@ -118,7 +141,7 @@ export default function AuthPage() {
     if (!email) return notify("Escribe tu email", "error");
     setLoading(true);
 
-    await supabase.auth.signOut(); // evita sesión previa
+    await supabase.auth.signOut();
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
@@ -128,12 +151,13 @@ export default function AuthPage() {
     notify("Te enviamos un enlace mágico. Revisa tu correo.", "success");
   };
 
-  // ---- SIGNUP (reenviar confirmación si ya existe; si hay sesión inmediata, guarda y redirige) ----
+  // ---- SIGNUP ----
   const handleSignup = async () => {
-    if (!email || !password) return notify("Email y contraseña son obligatorios", "error");
+    if (!email || !password)
+      return notify("Email y contraseña son obligatorios", "error");
     setLoading(true);
 
-    await supabase.auth.signOut(); // evita mezclar con otra sesión
+    await supabase.auth.signOut();
 
     const { data, error } = await supabase.auth.signUp({
       email,
@@ -144,9 +168,10 @@ export default function AuthPage() {
       },
     });
 
-    // 🔁 Caso: el usuario ya existe en auth.users → reenvía confirmación
-    const code = getErrorCode(error);
-    if (error?.message === "User already registered" || code === "user_already_exists") {
+    if (
+      error?.message === "User already registered" ||
+      (error as any)?.code === "user_already_exists"
+    ) {
       const { error: resendError } = await supabase.auth.resend({
         type: "signup",
         email,
@@ -154,7 +179,10 @@ export default function AuthPage() {
       });
       setLoading(false);
       if (resendError) return notify(resendError.message, "error");
-      return notify("La cuenta ya existía. Te reenviamos el correo de confirmación.", "success");
+      return notify(
+        "La cuenta ya existía. Te reenviamos el correo de confirmación.",
+        "success"
+      );
     }
 
     if (error) {
@@ -162,7 +190,6 @@ export default function AuthPage() {
       return notify(error.message, "error");
     }
 
-    // Si tu proyecto NO requiere confirmación por email, tendrás sesión ya
     if (data.session) {
       await ensureProfileClient(supabase);
       setLoading(false);
@@ -170,7 +197,6 @@ export default function AuthPage() {
       return window.location.replace("/onboarding");
     }
 
-    // Si requiere confirmación, aquí no hay sesión aún
     setLoading(false);
     notify("Cuenta creada. Revisa tu email para confirmar el acceso.", "success");
   };
@@ -198,13 +224,17 @@ export default function AuthPage() {
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(255,255,255,0.06),rgba(2,6,23,0.6))]" />
       </div>
 
-      {/* Centered card */}
+      {/* Card */}
       <div className="relative h-full w-full grid place-items-center p-4">
         <div className="w-full max-w-md rounded-3xl bg-white/10 backdrop-blur-xl border border-white/15 shadow-[0_10px_60px_rgba(0,0,0,0.5)] p-6 md:p-8">
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h1 className="text-white text-3xl font-semibold tracking-tight">prueba</h1>
-              <p className="text-slate-300 text-sm">Accede a tu progreso y rutinas</p>
+              <h1 className="text-white text-3xl font-semibold tracking-tight">
+                prueba
+              </h1>
+              <p className="text-slate-300 text-sm">
+                Accede a tu progreso y rutinas
+              </p>
             </div>
           </div>
 
@@ -213,7 +243,9 @@ export default function AuthPage() {
             <button
               onClick={() => setMode("login")}
               className={`rounded-xl px-3 py-2 text-sm font-medium transition ${
-                mode === "login" ? "bg-white text-slate-900" : "text-white/80 hover:text-white"
+                mode === "login"
+                  ? "bg-white text-slate-900"
+                  : "text-white/80 hover:text-white"
               }`}
             >
               Iniciar sesión
@@ -221,7 +253,9 @@ export default function AuthPage() {
             <button
               onClick={() => setMode("signup")}
               className={`rounded-xl px-3 py-2 text-sm font-medium transition ${
-                mode === "signup" ? "bg-white text-slate-900" : "text-white/80 hover:text-white"
+                mode === "signup"
+                  ? "bg-white text-slate-900"
+                  : "text-white/80 hover:text-white"
               }`}
             >
               Crear cuenta
@@ -270,11 +304,21 @@ export default function AuthPage() {
                   placeholder="••••••••"
                   className="w-full bg-transparent py-3 text-white placeholder:text-white/40 outline-none"
                 />
-                <button type="button" onClick={() => setShowPwd((s) => !s)} className="text-white/70 hover:text-white">
-                  {showPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                <button
+                  type="button"
+                  onClick={() => setShowPwd((s) => !s)}
+                  className="text-white/70 hover:text-white"
+                >
+                  {showPwd ? (
+                    <EyeOff className="w-4 h-4" />
+                  ) : (
+                    <Eye className="w-4 h-4" />
+                  )}
                 </button>
               </div>
-              <p className="text-xs text-white/50">Mínimo 8 caracteres. O usa enlace mágico.</p>
+              <p className="text-xs text-white/50">
+                Mínimo 8 caracteres. O usa enlace mágico.
+              </p>
             </div>
 
             {mode === "login" ? (
@@ -284,7 +328,12 @@ export default function AuthPage() {
                   disabled={loading}
                   className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white text-slate-900 font-semibold py-3 hover:bg-slate-100 transition disabled:opacity-60"
                 >
-                  {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogIn className="w-4 h-4" />} Entrar
+                  {loading ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <LogIn className="w-4 h-4" />
+                  )}
+                  Entrar
                 </button>
                 <button
                   onClick={handleMagicLink}
@@ -300,7 +349,12 @@ export default function AuthPage() {
                 disabled={loading}
                 className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-white text-slate-900 font-semibold py-3 hover:bg-slate-100 transition disabled:opacity-60"
               >
-                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />} Crear cuenta
+                {loading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <UserPlus className="w-4 h-4" />
+                )}
+                Crear cuenta
               </button>
             )}
 
@@ -328,7 +382,8 @@ export default function AuthPage() {
             </div>
 
             <p className="text-[11px] text-white/60 text-center mt-2">
-              Al continuar aceptas nuestros Términos y la Política de Privacidad.
+              Al continuar aceptas nuestros Términos y la Política de
+              Privacidad.
             </p>
           </div>
         </div>
